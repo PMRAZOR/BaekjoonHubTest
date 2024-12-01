@@ -1,118 +1,13 @@
-/*
-  문제가 맞았다면 문제 관련 데이터를 파싱하는 함수의 모음입니다.
-  모든 해당 파일의 모든 함수는 findData()를 통해 호출됩니다.
-*/
-
-/*
-  bojData를 초기화하는 함수로 문제 요약과 코드를 파싱합니다.
-
-  - 문제 설명: problemDescription
-  - Github repo에 저장될 디렉토리: directory
-  - 커밋 메시지: message 
-  - 백준 문제 카테고리: category
-  - 파일명: fileName
-  - Readme 내용 : readme
-*/
-async function findData(data) {
-  try {
-    if (isNull(data)) {
-      let table = findFromResultTable();
-      if (isEmpty(table)) return null;
-      table = filter(table, {
-        'resultCategory': RESULT_CATEGORY.RESULT_ACCEPTED,
-        'username': findUsername(),
-        'language': table[0]["language"]
-      })
-      data = selectBestSubmissionList(table)[0];
-    }
-    if (isNaN(Number(data.problemId)) || Number(data.problemId) < 1000) throw new Error(`정책상 대회 문제는 업로드 되지 않습니다. 대회 문제가 아니라고 판단된다면 이슈로 남겨주시길 바랍니다.\n문제 ID: ${data.problemId}`);
-    data = { ...data, ...await findProblemInfoAndSubmissionCode(data.problemId, data.submissionId) };
-    const detail = await makeDetailMessageAndReadme(preProcessEmptyObj(data));
-    return { ...data, ...detail }; // detail 만 반환해도 되나, 확장성을 위해 모든 데이터를 반환합니다.
-  } catch (error) {
-    console.error(error);
-  }
-  return null;
-}
- 
-/**
- * 문제의 상세 정보를 가지고, 문제의 업로드할 디렉토리, 파일명, 커밋 메시지, 문제 설명을 파싱하여 반환합니다.
- * @param {Object} data
- * @returns {Object} { directory, fileName, message, readme, code }
- */
-async function makeDetailMessageAndReadme(data) {
-  const { problemId, submissionId, result, title, level, problem_tags,
-    problem_description, problem_input, problem_output, submissionTime,
-    code, language, memory, runtime } = data;
-  const score = parseNumberFromString(result);
-  const directory = await getDirNameByOrgOption(
-    `백준/${level.replace(/ .*/, '')}/${problemId}. ${convertSingleCharToDoubleChar(title)}`,
-    langVersionRemove(language, null)
-  );
-  const message = `[${level}] Title: ${title}, Time: ${runtime} ms, Memory: ${memory} KB`
-    + ((isNaN(score)) ? ' ' : `, Score: ${score} point `) // 서브 태스크가 있는 문제로, 점수가 있는 경우 점수까지 커밋 메시지에 표기
-    + `-BaekjoonHub`;
-  const category = problem_tags.join(', ');
-  const fileName = `${convertSingleCharToDoubleChar(title)}.${languages[language]}`;
-  const dateInfo = submissionTime ?? getDateString(new Date(Date.now()));
-  // prettier-ignore-start
-  const readme = `# [${level}] ${title} - ${problemId} \n\n`
-    + `[문제 링크](https://www.acmicpc.net/problem/${problemId}) \n\n`
-    + `### 성능 요약\n\n`
-    + `메모리: ${memory} KB, `
-    + `시간: ${runtime} ms\n\n`
-    + `### 분류\n\n`
-    + `${category || "Empty"}\n\n` + (!!problem_description ? ''
-    + `### 제출 일자\n\n`
-    + `${dateInfo}\n\n`
-      + `### 문제 설명\n\n${problem_description}\n\n`
-      + `### 입력 \n\n ${problem_input}\n\n`
-      + `### 출력 \n\n ${problem_output}\n\n` : '');
-  // prettier-ignore-end
-  return {
-    directory,
-    fileName,
-    message,
-    readme,
-    code
-  };
+// 브라우저 호환성
+if (typeof browser === 'undefined') {
+  var browser = chrome;
 }
 
-/*
-  현재 로그인된 유저를 파싱합니다.
-*/
-function findUsername() {
-  const el = document.querySelector('a.username');
-  if (isNull(el)) return null;
-  const username = el?.innerText?.trim();
-  if (isEmpty(username)) return null;
-  return username;
-}
-
-/*
-  유저 정보 페이지에서 유저 이름을 파싱합니다.
-*/
-function findUsernameOnUserInfoPage() {
-  const el = document.querySelector('div.page-header > h1');
-  if (isNull(el)) return null;
-  const username = el.textContent.trim();
-  if (isEmpty(username)) return null;
-  return username;
-}
-
-/*
-  결과 테이블의 존재 여부를 확인합니다.
-*/
-function isExistResultTable() {
-  return document.getElementById('status-table') !== null;
-}
-
-/*
-  결과 테이블을 파싱하는 함수입니다.
-*/
-function parsingResultTableList(doc) {
+// 결과 테이블 파싱 함수를 window 객체에 등록
+window.parsingResultTableList = function(doc) {
   const table = doc.getElementById('status-table');
-  if (table === null || table === undefined || table.length === 0) return [];
+  if (!table) return [];
+
   const headers = Array.from(table.rows[0].cells, (x) => convertResultTableHeader(x.innerText.trim()));
 
   const list = [];
@@ -121,16 +16,19 @@ function parsingResultTableList(doc) {
     const cells = Array.from(row.cells, (x, index) => {
       switch (headers[index]) {
         case 'result':
-          return { result: x.innerText.trim(), resultCategory: x.firstChild.getAttribute('data-color').replace('-eng', '').trim() };
+          return {
+            result: x.innerText.trim(),
+            resultCategory: x.firstChild.getAttribute('data-color').replace('-eng', '').trim()
+          };
         case 'language':
           return x.innerText.unescapeHtml().replace(/\/.*$/g, '').trim();
         case 'submissionTime':
           const el = x.querySelector('a.show-date');
-          if (isNull(el)) return null;
+          if (!el) return null;
           return el.getAttribute('data-original-title');
         case 'problemId':
           const a = x.querySelector('a.problem_title');
-          if (isNull(a)) return null;
+          if (!a) return null;
           return {
             problemId: a.getAttribute('href').replace(/^.*\/([0-9]+)$/, '$1'),
           };
@@ -138,252 +36,559 @@ function parsingResultTableList(doc) {
           return x.innerText.trim();
       }
     });
-    let obj = {};
-    obj.elementId = row.id;
+
+    let obj = {
+      elementId: row.id
+    };
+
     for (let j = 0; j < headers.length; j++) {
       obj[headers[j]] = cells[j];
     }
-    obj = { ...obj, ...obj.result, ...obj.problemId};
+    obj = { ...obj, ...obj.result, ...obj.problemId };
     list.push(obj);
   }
+
   log('TableList', list);
   return list;
-}
+};
 
-/*
-  제출 화면의 데이터를 파싱하는 함수로 다음 데이터를 확인합니다.
-    - 유저이름: username
-    - 실행결과: result
-    - 메모리: memory
-    - 실행시간: runtime
-    - 제출언어: language
-    - 제출시간: submissionTime
-    - 제출번호: submissionId
-    - 문제번호: problemId
-    - 해당html요소 : element
-*/
-function findFromResultTable() {
-  if (!isExistResultTable()) {
+// 결과 테이블 존재 여부 확인 함수를 window 객체에 등록
+window.isExistResultTable = function() {
+  return document.getElementById('status-table') !== null;
+};
+
+// 결과 테이블에서 데이터 찾기 함수를 window 객체에 등록
+window.findFromResultTable = function() {
+  if (!window.isExistResultTable()) {
     log('Result table not found');
+    return [];
   }
-  return parsingResultTableList(document);
-}
+  return window.parsingResultTableList(document);
+};
 
-/*
-  Fetch를 사용하여 정보를 구하는 함수로 다음 정보를 확인합니다.
+// parsing.js
 
-    - 문제 설명: problem_description
-    - 문제 입력값: problem_input
-    - 문제 출력값: problem_output
-    - 제출 코드: code
-    - 문제 제목: title
-    - 문제 등급: level 
-    - Github repo에 저장될 디렉토리: directory
-    - 커밋 메시지: message 
-    - 백준 문제 카테고리: category
-*/
-function parseProblemDescription(doc = document) {
-  convertImageTagAbsoluteURL(doc.getElementById('problem_description')); //이미지에 상대 경로가 있을 수 있으므로 이미지 경로를 절대 경로로 전환 합니다.
-  const problemId = doc.getElementsByTagName('title')[0].textContent.split(':')[0].replace(/[^0-9]/, '');
-  const problem_description = unescapeHtml(doc.getElementById('problem_description').innerHTML.trim());
-  const problem_input = doc.getElementById('problem_input')?.innerHTML.trim?.().unescapeHtml?.() || 'Empty'; // eslint-disable-line
-  const problem_output = doc.getElementById('problem_output')?.innerHTML.trim?.().unescapeHtml?.() || 'Empty'; // eslint-disable-line
-  if (problemId && problem_description) {
-    log(`문제번호 ${problemId}의 내용을 저장합니다.`);
-    updateProblemsFromStats({ problemId, problem_description, problem_input, problem_output});
-    return { problemId, problem_description, problem_input, problem_output};
+// findData 함수를 window 객체에 등록
+window.findData = async function(data) {
+  try {
+    if (isNull(data)) {
+      let table = window.findFromResultTable();
+      if (isEmpty(table)) return null;
+      table = filter(table, {
+        'resultCategory': RESULT_CATEGORY.RESULT_ACCEPTED,
+        'username': findUsername(),
+        'language': table[0]["language"]
+      });
+      data = selectBestSubmissionList(table)[0];
+    }
+
+    if (isNaN(Number(data.problemId)) || Number(data.problemId) < 1000) {
+      throw new Error(`정책상 대회 문제는 업로드 되지 않습니다. 대회 문제가 아니라고 판단된다면 이슈로 남겨주시길 바랍니다.\n문제 ID: ${data.problemId}`);
+    }
+
+    data = { 
+      ...data, 
+      ...await findProblemInfoAndSubmissionCode(data.problemId, data.submissionId) 
+    };
+    const detail = await makeDetailMessageAndReadme(preProcessEmptyObj(data));
+    return { ...data, ...detail };
+  } catch (error) {
+    console.error('Error in findData:', error);
+    return null;
   }
-  return {};
-}
+};
 
-async function fetchProblemDescriptionById(problemId) {
-  return fetch(`https://www.acmicpc.net/problem/${problemId}`)
-    .then((res) => res.text())
-    .then((html) => {
-      const doc = new DOMParser().parseFromString(html, 'text/html');
-      return parseProblemDescription(doc);
-    });
-}
+// 관련 헬퍼 함수들도 window 객체에 등록
+window.findUsername = function() {
+  const el = document.querySelector('a.username');
+  if (isNull(el)) return null;
+  const username = el?.innerText?.trim();
+  if (isEmpty(username)) return null;
+  return username;
+};
 
-async function fetchSubmitCodeById(submissionId) {
-  return fetch(`https://www.acmicpc.net/source/download/${submissionId}`, { method: 'GET' })
-    .then((res) => res.text())
-}
+window.filter = function(array, conditions) {
+  return array.filter(item => {
+    return Object.entries(conditions).every(([key, value]) => item[key] === value);
+  });
+};
 
-async function fetchSolvedACById(problemId) {
-  return chrome.runtime.sendMessage({sender: "baekjoon", task : "SolvedApiCall", problemId : problemId});
-}
+window.selectBestSubmissionList = function(submissions) {
+  if (isNull(submissions) || submissions.length === 0) return [];
+  return maxValuesGroupBykey(submissions, 'problemId', (a, b) => -compareSubmission(a, b));
+};
 
-async function getProblemDescriptionById(problemId) {
+window.findProblemInfoAndSubmissionCode = async function(problemId, submissionId) {
+  try {
+    if (!isNull(problemId) && !isNull(submissionId)) {
+      const [description, code, solvedJson] = await Promise.all([
+        getProblemDescriptionById(problemId),
+        getSubmitCodeById(submissionId),
+        getSolvedACById(problemId)
+      ]);
+
+      const problem_tags = solvedJson.tags
+        .flatMap((tag) => tag.displayNames)
+        .filter((tag) => tag.language === 'ko')
+        .map((tag) => tag.name);
+
+      const title = solvedJson.titleKo;
+      const level = bj_level[solvedJson.level];
+
+      const { problem_description, problem_input, problem_output } = description;
+      
+      return {
+        problemId,
+        submissionId,
+        title,
+        level,
+        code,
+        problem_description,
+        problem_input,
+        problem_output,
+        problem_tags
+      };
+    }
+    return null;
+  } catch (err) {
+    console.error('Error in findProblemInfoAndSubmissionCode:', err);
+    uploadState.uploading = false;
+    markUploadFailedCSS();
+    throw err;
+  }
+};
+
+window.makeDetailMessageAndReadme = async function(data) {
+  const {
+    problemId, submissionId, result, title, level, problem_tags,
+    problem_description, problem_input, problem_output, submissionTime,
+    code, language, memory, runtime
+  } = data;
+
+  const score = parseNumberFromString(result);
+  const directory = await getDirNameByOrgOption(
+    `백준/${level.replace(/ .*/, '')}/${problemId}. ${convertSingleCharToDoubleChar(title)}`,
+    langVersionRemove(language, null)
+  );
+
+  const message = `[${level}] Title: ${title}, Time: ${runtime} ms, Memory: ${memory} KB`
+    + ((isNaN(score)) ? ' ' : `, Score: ${score} point `)
+    + `-BaekjoonHub`;
+
+  const category = problem_tags.join(', ');
+  const fileName = `${convertSingleCharToDoubleChar(title)}.${languages[language]}`;
+  const dateInfo = submissionTime ?? getDateString(new Date(Date.now()));
+
+  const readme = `# [${level}] ${title} - ${problemId} \n\n`
+    + `[문제 링크](https://www.acmicpc.net/problem/${problemId}) \n\n`
+    + `### 성능 요약\n\n`
+    + `메모리: ${memory} KB, `
+    + `시간: ${runtime} ms\n\n`
+    + `### 분류\n\n`
+    + `${category || "Empty"}\n\n`
+    + (!!problem_description ? ''
+    + `### 제출 일자\n\n`
+    + `${dateInfo}\n\n`
+    + `### 문제 설명\n\n${problem_description}\n\n`
+    + `### 입력 \n\n ${problem_input}\n\n`
+    + `### 출력 \n\n ${problem_output}\n\n` : '');
+
+  return {
+    directory,
+    fileName,
+    message,
+    readme,
+    code
+  };
+};
+// parsing.js에 추가
+
+window.getProblemDescriptionById = async function(problemId) {
   let problem = await getProblemFromStats(problemId);
   if (isNull(problem)) {
     problem = await fetchProblemDescriptionById(problemId);
     updateProblemsFromStats(problem); // not await
   }
   return problem;
-}
+};
 
-async function getSubmitCodeById(submissionId) {
+window.fetchProblemDescriptionById = async function(problemId) {
+  try {
+    const response = await fetch(`https://www.acmicpc.net/problem/${problemId}`);
+    const text = await response.text();
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(text, 'text/html');
+    return parseProblemDescription(doc);
+  } catch (error) {
+    console.error('Error fetching problem description:', error);
+    return null;
+  }
+};
+
+window.getSubmitCodeById = async function(submissionId) {
   let code = await getSubmitCodeFromStats(submissionId);
   if (isNull(code)) {
     code = await fetchSubmitCodeById(submissionId);
     updateSubmitCodeFromStats({ submissionId, code }); // not await
   }
   return code;
-}
+};
 
-async function getSolvedACById(problemId) {
-  let jsonData = await getSolvedACFromStats(problemId);
-  if (isNull(jsonData)) {
-    jsonData = await fetchSolvedACById(problemId);
-    updateSolvedACFromStats({ problemId, jsonData }); // not await
+window.fetchSubmitCodeById = async function(submissionId) {
+  try {
+    const response = await fetch(`https://www.acmicpc.net/source/download/${submissionId}`, {
+      method: 'GET'
+    });
+    return response.text();
+  } catch (error) {
+    console.error('Error fetching submit code:', error);
+    return null;
   }
-  return jsonData;
+};
+
+window.getSolvedACById = async function(problemId) {
+  try {
+    let jsonData = await getSolvedACFromStats(problemId);
+    if (!jsonData) {
+      console.log('Fetching SolvedAC data for problem:', problemId);
+      jsonData = await fetchSolvedACById(problemId);
+      console.log('Received SolvedAC data:', jsonData);
+      
+      if (jsonData && !jsonData.error) {
+        await updateSolvedACFromStats({ problemId, jsonData });
+      } else {
+        console.warn('Invalid SolvedAC data received');
+        return null;
+      }
+    }
+    return jsonData;
+  } catch (error) {
+    console.error('Error getting SolvedAC data:', error);
+    return null;
+  }
+};
+
+window.fetchSolvedACById = async function(problemId) {
+  try {
+    const response = await browser.runtime.sendMessage({
+      sender: "baekjoon",
+      task: "SolvedApiCall",
+      problemId: problemId
+    });
+    
+    if (response && response.error) {
+      throw new Error(response.error);
+    }
+    
+    return response;
+  } catch (error) {
+    console.error('Error fetching SolvedAC data:', error);
+    return null;
+  }
+};
+
+window.fetchSolvedACById = async function(problemId) {
+  try {
+    return await browser.runtime.sendMessage({
+      sender: "baekjoon",
+      task: "SolvedApiCall",
+      problemId: problemId
+    });
+  } catch (error) {
+    console.error('Error fetching SolvedAC data:', error);
+    return null;
+  }
+};
+
+window.parseProblemDescription = function(doc = document) {
+  try {
+    convertImageTagAbsoluteURL(doc.getElementById('problem_description'));
+    const problemId = doc.getElementsByTagName('title')[0].textContent.split(':')[0].replace(/[^0-9]/, '');
+    const problem_description = unescapeHtml(doc.getElementById('problem_description').innerHTML.trim());
+    const problem_input = doc.getElementById('problem_input')?.innerHTML.trim?.().unescapeHtml?.() || 'Empty';
+    const problem_output = doc.getElementById('problem_output')?.innerHTML.trim?.().unescapeHtml?.() || 'Empty';
+
+    if (problemId && problem_description) {
+      log(`문제번호 ${problemId}의 내용을 저장합니다.`);
+      updateProblemsFromStats({ problemId, problem_description, problem_input, problem_output});
+      return { problemId, problem_description, problem_input, problem_output};
+    }
+    return {};
+  } catch (error) {
+    console.error('Error parsing problem description:', error);
+    return {};
+  }
+};
+
+// storage.js 관련 함수들도 window에 등록
+window.getProblemFromStats = async function(problemId) {
+  try {
+    return await problemCache.get(problemId);
+  } catch (error) {
+    console.error('Error getting problem from stats:', error);
+    return null;
+  }
+};
+
+window.getSubmitCodeFromStats = async function(submissionId) {
+  try {
+    const result = await submitCodeCache.get(submissionId);
+    return result?.data;
+  } catch (error) {
+    console.error('Error getting submit code from stats:', error);
+    return null;
+  }
+};
+
+window.getSolvedACFromStats = async function(problemId) {
+  try {
+    const result = await SolvedACCache.get(problemId);
+    return result?.data;
+  } catch (error) {
+    console.error('Error getting SolvedAC data from stats:', error);
+    return null;
+  }
+};
+
+window.updateProblemsFromStats = async function(problem) {
+  try {
+    const data = {
+      id: problem.problemId,
+      problem_description: problem.problem_description,
+      problem_input: problem.problem_input,
+      problem_output: problem.problem_output,
+    };
+    await problemCache.update(data);
+  } catch (error) {
+    console.error('Error updating problems stats:', error);
+  }
+};
+
+window.updateSubmitCodeFromStats = async function(obj) {
+  try {
+    const data = {
+      id: obj.submissionId,
+      data: obj.code,
+    };
+    await submitCodeCache.update(data);
+  } catch (error) {
+    console.error('Error updating submit code stats:', error);
+  }
+};
+
+window.updateSolvedACFromStats = async function(obj) {
+  try {
+    const data = {
+      id: obj.problemId,
+      data: obj.jsonData,
+    };
+    await SolvedACCache.update(data);
+  } catch (error) {
+    console.error('Error updating SolvedAC stats:', error);
+  }
+};
+
+// fetchSolvedACById 함수 수정
+async function fetchSolvedACById(problemId) {
+  try {
+    return await browser.runtime.sendMessage({
+      sender: "baekjoon", 
+      task: "SolvedApiCall", 
+      problemId: problemId
+    });
+  } catch (error) {
+    console.error('Error fetching SolvedAC data:', error);
+    return null;
+  }
 }
 
-/**
- * 제출 소스코드, 문제 설명, 예시 입력, 예시 출력, 문제 태그를 반환합니다.
- * @param {Object} problemId
- * @param {Object} submissionId
- * @returns {Object} { problemId, submissionId, code, problem_description, problem_input, problem_output, problem_tags }
- */
+// parsing.js의 parseProblemDescription 함수 수정
+window.parseProblemDescription = function(doc = document) {
+  try {
+    // 문제 설명 요소 찾기 (여러 가능한 ID 시도)
+    const descriptionElement = doc.querySelector('#problem_description, #problem-body, .problem-text');
+    if (!descriptionElement) {
+      console.warn('Problem description element not found');
+      return {
+        problem_description: 'Problem description not available',
+        problem_input: 'Input description not available',
+        problem_output: 'Output description not available'
+      };
+    }
+
+    // 이미지 URL 절대 경로로 변환
+    convertImageTagAbsoluteURL(descriptionElement);
+
+    // 문제 ID 찾기
+    const problemId = doc.querySelector('title')?.textContent?.split(':')[0]?.replace(/[^0-9]/g, '') ||
+                     window.location.pathname.split('/').pop();
+
+    // 문제 설명 파싱
+    const problem_description = unescapeHtml(descriptionElement.innerHTML.trim());
+    
+    // 입력/출력 설명 파싱
+    const problem_input = doc.querySelector('#problem_input, .problem-input')?.innerHTML?.trim?.()?.unescapeHtml?.() || 'Input description not available';
+    const problem_output = doc.querySelector('#problem_output, .problem-output')?.innerHTML?.trim?.()?.unescapeHtml?.() || 'Output description not available';
+
+    if (problemId) {
+      log(`문제번호 ${problemId}의 내용을 저장합니다.`);
+      updateProblemsFromStats({ problemId, problem_description, problem_input, problem_output});
+      return { problemId, problem_description, problem_input, problem_output};
+    }
+    return {};
+  } catch (error) {
+    console.error('Error parsing problem description:', error);
+    return {
+      problem_description: 'Error parsing problem description',
+      problem_input: 'Error parsing input',
+      problem_output: 'Error parsing output'
+    };
+  }
+};
+
+window.findProblemInfoAndSubmissionCode = async function(problemId, submissionId) {
+  try {
+    if (!problemId || !submissionId) {
+      throw new Error('Problem ID or Submission ID is missing');
+    }
+
+    console.log('Fetching data for problem:', problemId, 'submission:', submissionId);
+
+    // 병렬로 데이터 가져오기
+    const [description, code, solvedJson] = await Promise.all([
+      getProblemDescriptionById(problemId).catch(err => {
+        console.error('Error getting problem description:', err);
+        return null;
+      }),
+      getSubmitCodeById(submissionId).catch(err => {
+        console.error('Error getting submit code:', err);
+        return null;
+      }),
+      getSolvedACById(problemId).catch(err => {
+        console.error('Error getting SolvedAC data:', err);
+        return null;
+      })
+    ]);
+
+    console.log('Fetched data:', { description, solvedJson });
+
+    // 기본 데이터 구조
+    const result = {
+      problemId,
+      submissionId,
+      title: `Problem ${problemId}`,
+      level: 'Unrated',
+      code: code || '',
+      problem_description: description?.problem_description || 'No description available',
+      problem_input: description?.problem_input || 'No input description available',
+      problem_output: description?.problem_output || 'No output description available',
+      problem_tags: []
+    };
+
+    // SolvedAC 데이터가 있으면 추가
+    if (solvedJson && solvedJson.titleKo) {
+      result.title = solvedJson.titleKo;
+      result.level = bj_level[solvedJson.level] || 'Unrated';
+      result.problem_tags = solvedJson.tags
+        ? solvedJson.tags
+            .flatMap(tag => tag.displayNames || [])
+            .filter(tag => tag.language === 'ko')
+            .map(tag => tag.name)
+        : [];
+    }
+
+    return result;
+  } catch (error) {
+    console.error('Error in findProblemInfoAndSubmissionCode:', error);
+    uploadState.uploading = false;
+    markUploadFailedCSS();
+    
+    // 기본값 반환
+    return {
+      problemId,
+      submissionId,
+      title: `Problem ${problemId}`,
+      level: 'Unrated',
+      code: '',
+      problem_description: 'Error loading problem description',
+      problem_input: 'Error loading input description',
+      problem_output: 'Error loading output description',
+      problem_tags: []
+    };
+  }
+};
+
+// findProblemInfoAndSubmissionCode 함수 개선
 async function findProblemInfoAndSubmissionCode(problemId, submissionId) {
   log('in find with promise');
   if (!isNull(problemId) && !isNull(submissionId)) {
-    return Promise.all([getProblemDescriptionById(problemId), getSubmitCodeById(submissionId), getSolvedACById(problemId)])
-      .then(([description, code, solvedJson]) => {
-        const problem_tags = solvedJson.tags.flatMap((tag) => tag.displayNames).filter((tag) => tag.language === 'ko').map((tag) => tag.name);
-        const title = solvedJson.titleKo;
-        const level = bj_level[solvedJson.level];
+    try {
+      const [description, code, solvedJson] = await Promise.all([
+        getProblemDescriptionById(problemId),
+        getSubmitCodeById(submissionId),
+        getSolvedACById(problemId)
+      ]);
 
-        const { problem_description, problem_input, problem_output } = description;
-        return { problemId, submissionId, title, level, code, problem_description, problem_input, problem_output, problem_tags };
-      })
-      .catch((err) => {
-        console.log('error ocurred: ', err);
-        uploadState.uploading = false;
-        markUploadFailedCSS();
-      });
-  }
-}
+      if (!solvedJson || !solvedJson.tags) {
+        throw new Error('Invalid SolvedAC data');
+      }
 
-/**
- * 문제의 목록을 문제 번호로 한꺼번에 반환합니다.
- * (한번 조회 시 100개씩 나눠서 진행)
- * @param {Array} problemIds
- * @returns {Promise<Array>}
- */
+      const problem_tags = solvedJson.tags
+        .flatMap((tag) => tag.displayNames)
+        .filter((tag) => tag.language === 'ko')
+        .map((tag) => tag.name);
 
-async function fetchProblemInfoByIds(problemIds) {
-  const dividedProblemIds = [];
-  for (let i = 0; i < problemIds.length; i += 100) {
-    dividedProblemIds.push(problemIds.slice(i, i + 100));
-  }
-  return asyncPool(1, dividedProblemIds, async (pids) => {
-    const result = await fetch(`https://solved.ac/api/v3/problem/lookup?problemIds=${pids.join('%2C')}`, { method: 'GET' });
-    return result.json();
-  }).then(results => results.flatMap(result => result));
-}
+      const title = solvedJson.titleKo;
+      const level = bj_level[solvedJson.level];
 
-/**
- * 문제의 상세 정보 목록을 문제 번호 목록으로 한꺼번에 반환합니다.
- * (한번 조회 시 2개씩 병렬로 진행)
- * @param {Array} problemIds
- * @returns {Promise<Array>}
- */
-async function fetchProblemDescriptionsByIds(problemIds) {
-  return asyncPool(2, problemIds, async (problemId) => {
-    return getProblemDescriptionById(problemId);
-  })
-}
-
-/**
- * submissionId들을 통해 코드들을 가져옵니다. (부하를 줄이기 위해 한번에 2개씩 가져옵니다.)
- * @param {Array} submissionIds
- * @returns {Promise<Array>}
- */
-async function fetchSubmissionCodeByIds(submissionIds) {
-  return asyncPool(2, submissionIds, async (submissionId) => {
-    return getSubmitCodeById(submissionId);
-  });
-}
-
-
-
-/**
- * user가 problemId 에 제출한 리스트를 가져오는 함수
- * @param problemId: 문제 번호
- * @param username: 백준 아이디
- * @return Promise<Array<String>>
- */
-async function findResultTableByProblemIdAndUsername(problemId, username) {
-  return fetch(`https://www.acmicpc.net/status?from_mine=1&problem_id=${problemId}&user_id=${username}`, { method: 'GET' })
-    .then((html) => html.text())
-    .then((text) => {
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(text, 'text/html');
-      return parsingResultTableList(doc);
-    });
-}
-
-/**
- * user가 "맞았습니다!!" 결과를 맞은 중복되지 않은 제출 결과 리스트를 가져오는 함수
- * @param username: 백준 아이디
- * @returns Promise<Array<Object>>
- */
-async function findUniqueResultTableListByUsername(username) {
-  return selectBestSubmissionList(await findResultTableListByUsername(username));
-}
-
-/**
- * user가 "맞았습니다!!" 결과를 맞은 모든 제출 결과 리스트를 가져오는 함수
- * @param username: 백준 아이디
- * @return Promise<Array<Object>>
- */
-async function findResultTableListByUsername(username) {
-  const result = [];
-  let doc = await findHtmlDocumentByUrl(`https://www.acmicpc.net/status?user_id=${username}&result_id=4`);
-  let next_page = doc.getElementById('next_page');
-  do {
-    result.push(...parsingResultTableList(doc));
-    if (next_page !== null) doc = await findHtmlDocumentByUrl(next_page.getAttribute('href'));
-  } while ((next_page = doc.getElementById('next_page')) !== null);
-  result.push(...parsingResultTableList(doc));
-
-  return result;
-}
-
-/**
- * url에 해당하는 html 문서를 가져오는 함수
- * @param url: url 주소
- * @returns html document
- */
-async function findHtmlDocumentByUrl(url) {
-  return fetch(url, { method: 'GET' })
-    .then((html) => html.text())
-    .then((text) => {
-      const parser = new DOMParser();
-      return parser.parseFromString(text, 'text/html');
-    });
-}
-
-/**
- * 백준에서 표기된 프로그래밍 언어의 버전을 없애고 업로드 하기 위함입니다.
- * 버전에 차이가 중요하게 여겨진다면, 'ignore'에 예외 케이스를 추가하세요.
- * 해당 코드는 'lang'이 "PyPy3" 같이 주어진다면은 버전을 제거하지 않습니다.
- * 예외에 추가 되어있거나, "Python 3.8" 혹은 "Java 11" 같이 주어진다면 버전이 제거될것입니다.
- * @param {string} lang - 처리 하고자 하는 언어입니다.
- * @param {Set} ignores - 예외 처리 하고자 하는 언어를 추가 해주세요.
- * @return {string} - 분기 처리에 따른 lang
- *  */
-function langVersionRemove(lang, ignores) {
-  if (ignores === null || !ignores.has(lang)) {
-    let parts = lang.split(' ');
-    if (/^\d/.test(parts[parts.length - 1])) {
-      parts.pop();
+      const { problem_description, problem_input, problem_output } = description;
+      return { 
+        problemId, 
+        submissionId, 
+        title, 
+        level, 
+        code, 
+        problem_description, 
+        problem_input, 
+        problem_output, 
+        problem_tags 
+      };
+    } catch (err) {
+      console.error('Error in findProblemInfoAndSubmissionCode:', err);
+      uploadState.uploading = false;
+      markUploadFailedCSS();
+      throw err;
     }
-    lang = parts.join(' ');
   }
+  return null;
+}
 
-  return lang;
+// DOM 요소 접근 함수들 개선
+function findUsername() {
+  try {
+    const el = document.querySelector('a.username');
+    return el?.innerText?.trim() || null;
+  } catch (error) {
+    console.error('Error finding username:', error);
+    return null;
+  }
+}
+
+function findUsernameOnUserInfoPage() {
+  try {
+    const el = document.querySelector('div.page-header > h1');
+    return el?.textContent?.trim() || null;
+  } catch (error) {
+    console.error('Error finding username on user info page:', error);
+    return null;
+  }
+}
+
+function isExistResultTable() {
+  try {
+    return !!document.getElementById('status-table');
+  } catch (error) {
+    console.error('Error checking result table:', error);
+    return false;
+  }
 }

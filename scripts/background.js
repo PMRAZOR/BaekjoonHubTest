@@ -1,50 +1,77 @@
+if (typeof browser === 'undefined') {
+  var browser = chrome;
+}
+
 /**
  * solvedac 문제 데이터를 파싱해오는 함수.
  * @param {int} problemId
  */
 async function SolvedApiCall(problemId) {
-  return fetch(`https://solved.ac/api/v3/problem/show?problemId=${problemId}`, { method: 'GET' })
-    .then((query) => query.json());
-}
-
-function handleMessage(request, sender, sendResponse) {
-  if (request && request.closeWebPage === true && request.isSuccess === true) {
-    /* Set username */
-    chrome.storage.local.set(
-      { BaekjoonHub_username: request.username } /* , () => {
-      window.localStorage.BaekjoonHub_username = request.username;
-    } */,
+  try {
+    const response = await fetch(
+      `https://solved.ac/api/v3/problem/show?problemId=${problemId}`,
+      {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json'
+        }
+      }
     );
-
-    /* Set token */
-    chrome.storage.local.set(
-      { BaekjoonHub_token: request.token } /* , () => {
-      window.localStorage[request.KEY] = request.token;
-    } */,
-    );
-
-    /* Close pipe */
-    chrome.storage.local.set({ pipe_BaekjoonHub: false }, () => {
-      console.log('Closed pipe.');
-    });
-
-    // chrome.tabs.getSelected(null, function (tab) {
-    //   chrome.tabs.remove(tab.id);
-    // });
-
-    /* Go to onboarding for UX */
-    const urlOnboarding = `chrome-extension://${chrome.runtime.id}/welcome.html`;
-    chrome.tabs.create({ url: urlOnboarding, selected: true }); // creates new tab
-  } else if (request && request.closeWebPage === true && request.isSuccess === false) {
-    alert('Something went wrong while trying to authenticate your profile!');
-    chrome.tabs.getSelected(null, function (tab) {
-      chrome.tabs.remove(tab.id);
-    });
-  } else if (request && request.sender == "baekjoon" && request.task == "SolvedApiCall") {
-    SolvedApiCall(request.problemId).then((res) => sendResponse(res));
-    //sendResponse(SolvedApiCall(request.problemId))
+    
+    if (!response.ok) {
+      throw new Error(`SolvedAC API error: ${response.status}`);
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('SolvedApiCall error:', error);
+    return null;
   }
-  return true;
 }
 
-chrome.runtime.onMessage.addListener(handleMessage);
+async function handleMessage(request, sender, sendResponse) {
+  try {
+    if (request && request.sender === "baekjoon" && request.task === "SolvedApiCall") {
+      const result = await SolvedApiCall(request.problemId);
+      sendResponse(result);
+      return true;
+    }
+    if (request && request.closeWebPage === true) {
+      if (request.isSuccess === true) {
+        await browser.storage.local.set({
+          BaekjoonHub_username: request.username,
+          BaekjoonHub_token: request.token,
+          pipe_BaekjoonHub: false
+        });
+        
+        console.log('Closed pipe.');
+
+        // welcome 페이지 열기
+        const urlOnboarding = browser.runtime.getURL('welcome.html');
+        await browser.tabs.create({ url: urlOnboarding, active: true });
+      } else {
+        console.error('Authentication failed');
+      }
+    } else if (request && request.sender === "baekjoon" && request.task === "SolvedApiCall") {
+      try {
+        const result = await SolvedApiCall(request.problemId);
+        sendResponse(result);
+        return true; // 비동기 응답을 위해 필요
+      } catch (error) {
+        console.error('SolvedApiCall error:', error);
+        sendResponse({ error: error.message });
+        return true;
+      }
+    }
+  } catch (error) {
+    console.error('Handle message error:', error);
+    sendResponse({ error: error.message });
+  }
+  return true; // 비동기 응답을 위해 필요
+}
+
+browser.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  handleMessage(request, sender, sendResponse);
+  return true;
+});
+

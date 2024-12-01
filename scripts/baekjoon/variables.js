@@ -7,7 +7,9 @@
     uploadState: 현재 업로드 중인지를 저장하는 boolean입니다.
     bojData: 깃허브에 업로드되는 사용자의 코드와 문제 요약을 담고 있습니다.
 */
-
+if (typeof browser === 'undefined') {
+  var browser = chrome;
+}
 // prettier-ignore
 // Languages supported by BOJ
 /* let */ const languages = {

@@ -1,79 +1,106 @@
-/* global oAuth2 */
-/* eslint no-undef: "error" */
+// 브라우저 호환성을 위한 polyfill
+if (typeof browser === 'undefined') {
+  var browser = chrome;
+}
 
 let action = false;
 
-$('#authenticate').on('click', () => {
-  if (action) {
-    oAuth2.begin();
-  }
-});
-
-/* Get URL for welcome page */
-$('#welcome_URL').attr('href', `chrome-extension://${chrome.runtime.id}/welcome.html`);
-$('#hook_URL').attr('href', `chrome-extension://${chrome.runtime.id}/welcome.html`);
-
-chrome.storage.local.get('BaekjoonHub_token', (data) => {
-  const token = data.BaekjoonHub_token;
-  if (token === null || token === undefined) {
-    action = true;
-    $('#auth_mode').show();
-  } else {
-    // To validate user, load user object from GitHub.
-    const AUTHENTICATION_URL = 'https://api.github.com/user';
-
-    const xhr = new XMLHttpRequest();
-    xhr.addEventListener('readystatechange', function () {
-      if (xhr.readyState === 4) {
-        if (xhr.status === 200) {
-          /* Show MAIN FEATURES */
-          chrome.storage.local.get('mode_type', (data2) => {
-            if (data2 && data2.mode_type === 'commit') {
-              $('#commit_mode').show();
-              /* Get problem stats and repo link */
-              chrome.storage.local.get(['stats', 'BaekjoonHub_hook'], (data3) => {
-                const BaekjoonHubHook = data3.BaekjoonHub_hook;
-                if (BaekjoonHubHook) {
-                  $('#repo_url').html(`Your Repo: <a target="blank" style="color: cadetblue !important;" href="https://github.com/${BaekjoonHubHook}">${BaekjoonHubHook}</a>`);
-                }
-              });
-            } else {
-              $('#hook_mode').show();
-            }
-          });
-        } else if (xhr.status === 401) {
-          // bad oAuth
-          // reset token and redirect to authorization process again!
-          chrome.storage.local.set({ BaekjoonHub_token: null }, () => {
-            console.log('BAD oAuth!!! Redirecting back to oAuth process');
-            action = true;
-            $('#auth_mode').show();
-          });
+// DOM이 로드된 후 실행되도록 보장
+document.addEventListener('DOMContentLoaded', async () => {
+  try {
+    const authenticateButton = document.getElementById('authenticate');
+    if (authenticateButton) {
+      authenticateButton.addEventListener('click', async () => {
+        console.log('Authentication button clicked');
+        if (typeof oAuth2 !== 'undefined') {
+          await oAuth2.begin();
+        } else {
+          console.error('oAuth2 object not found');
         }
+      });
+    }
+
+    // welcome URL 설정
+    const extensionId = browser.runtime.id;
+    const welcomeUrl = `${browser.runtime.getURL('welcome.html')}`;
+    $('#welcome_URL').attr('href', welcomeUrl);
+    $('#hook_URL').attr('href', welcomeUrl);
+
+    // 토큰 확인
+    const data = await browser.storage.local.get('BaekjoonHub_token');
+    const token = data.BaekjoonHub_token;
+
+    if (!token) {
+      action = true;
+      $('#auth_mode').show();
+    } else {
+      try {
+        // GitHub API로 사용자 검증
+        const response = await fetch('https://api.github.com/user', {
+          headers: {
+            'Authorization': `token ${token}`
+          }
+        });
+
+        if (response.status === 200) {
+          // 모드 타입 확인
+          const modeData = await browser.storage.local.get('mode_type');
+          if (modeData && modeData.mode_type === 'commit') {
+            $('#commit_mode').show();
+            
+            // 저장소 정보 가져오기
+            const hookData = await browser.storage.local.get(['stats', 'BaekjoonHub_hook']);
+            if (hookData.BaekjoonHub_hook) {
+              $('#repo_url').html(
+                `Your Repo: <a target="blank" style="color: cadetblue !important;" 
+                href="https://github.com/${hookData.BaekjoonHub_hook}">${hookData.BaekjoonHub_hook}</a>`
+              );
+            }
+          } else {
+            $('#hook_mode').show();
+          }
+        } else if (response.status === 401) {
+          // 잘못된 OAuth 토큰
+          await browser.storage.local.set({ BaekjoonHub_token: null });
+          console.log('Bad OAuth token, redirecting to auth process');
+          action = true;
+          $('#auth_mode').show();
+        }
+      } catch (error) {
+        console.error('Error verifying token:', error);
+        $('#auth_mode').show();
+      }
+    }
+
+    // Enable/Disable 기능 초기화
+    const enableData = await browser.storage.local.get('bjhEnable');
+    if (enableData.bjhEnable === undefined) {
+      $('#onffbox').prop('checked', true);
+      await browser.storage.local.set({ 'bjhEnable': true });
+    } else {
+      $('#onffbox').prop('checked', enableData.bjhEnable);
+      await browser.storage.local.set({ 'bjhEnable': enableData.bjhEnable });
+    }
+
+    // Enable/Disable 토글 이벤트
+    $('#onffbox').on('click', async () => {
+      try {
+        await browser.storage.local.set({ 
+          'bjhEnable': $('#onffbox').is(':checked') 
+        });
+      } catch (error) {
+        console.error('Error toggling enable state:', error);
       }
     });
-    xhr.open('GET', AUTHENTICATION_URL, true);
-    xhr.setRequestHeader('Authorization', `token ${token}`);
-    xhr.send();
+
+  } catch (error) {
+    console.error('Error in popup initialization:', error);
   }
 });
 
-/*
-  초기에 활성화 데이터가 존재하는지 확인, 없으면 새로 생성, 있으면 있는 데이터에 맞게 버튼 조정
- */
-chrome.storage.local.get('bjhEnable', (data4) => {
-  if (data4.bjhEnable === undefined) {
-    $('#onffbox').prop('checked', true);
-    chrome.storage.local.set({ 'bjhEnable': $('#onffbox').is(':checked') }, () => { });
-  }
-  else {
-    $('#onffbox').prop('checked', data4.bjhEnable);
-    chrome.storage.local.set({ 'bjhEnable': $('#onffbox').is(':checked') }, () => { });
-  }
-})
-/*
-  활성화 버튼 클릭 시 storage에 활성 여부 데이터를 저장.
- */
-$('#onffbox').on('click', () => {
-  chrome.storage.local.set({ 'bjhEnable': $('#onffbox').is(':checked') }, () => { });
-});
+// 디버깅을 위한 콘솔 로그
+console.log('Popup script loaded');
+window.onerror = function(msg, url, lineNo, columnNo, error) {
+  console.error('Error: ' + msg + '\nURL: ' + url + '\nLine: ' + lineNo + '\nColumn: ' + columnNo + '\nError object: ' + JSON.stringify(error));
+  return false;
+};

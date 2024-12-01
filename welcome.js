@@ -1,3 +1,8 @@
+// 브라우저 호환성을 위한 polyfill
+if (typeof browser === 'undefined') {
+  var browser = chrome;
+}
+
 const option = () => {
   return $('#type').val();
 };
@@ -6,9 +11,9 @@ const repositoryName = () => {
   return $('#name').val().trim();
 };
 
-/* Status codes for creating of repo */
 
-const statusCode = (res, status, name) => {
+/* Status codes for creating of repo */
+const statusCode = async (res, status, name) => {
   switch (status) {
     case 304:
       $('#success').hide();
@@ -41,8 +46,9 @@ const statusCode = (res, status, name) => {
       break;
 
     default:
-      /* Change mode type to commit */
-      chrome.storage.local.set({ mode_type: 'commit' }, () => {
+      try {
+        /* Change mode type to commit */
+        await browser.storage.local.set({ mode_type: 'commit' });
         $('#error').hide();
         $('#success').html(`Successfully created <a target="blank" href="${res.html_url}">${name}</a>. Start <a href="https://www.acmicpc.net/">BOJ</a>!`);
         $('#success').show();
@@ -50,42 +56,48 @@ const statusCode = (res, status, name) => {
         /* Show new layout */
         document.getElementById('hook_mode').style.display = 'none';
         document.getElementById('commit_mode').style.display = 'inherit';
-      });
-      /* Set Repo Hook */
-      chrome.storage.local.set({ BaekjoonHub_hook: res.full_name }, () => {
+        /* Set Repo Hook */
+        await browser.storage.local.set({ BaekjoonHub_hook: res.full_name });
         console.log('Successfully set new repo hook');
-      });
-
+      } catch (error) {
+        console.error('Error in default status code:', error);
+      }
       break;
   }
 };
 
-const createRepo = (token, name) => {
-  const AUTHENTICATION_URL = 'https://api.github.com/user/repos';
-  let data = {
-    name,
-    private: true,
-    auto_init: true,
-    description: 'This is an auto push repository for Baekjoon Online Judge created with [BaekjoonHub](https://github.com/BaekjoonHub/BaekjoonHub).',
-  };
-  data = JSON.stringify(data);
+const createRepo = async (token, name) => {
+  try {
+    const AUTHENTICATION_URL = 'https://api.github.com/user/repos';
+    const data = {
+      name,
+      private: true,
+      auto_init: true,
+      description: 'This is an auto push repository for Baekjoon Online Judge created with [BaekjoonHub](https://github.com/BaekjoonHub/BaekjoonHub).',
+    };
 
-  const xhr = new XMLHttpRequest();
-  xhr.addEventListener('readystatechange', function() {
-    if (xhr.readyState === 4) {
-      statusCode(JSON.parse(xhr.responseText), xhr.status, name);
-    }
-  });
+    const stats = {};
+    stats.version = browser.runtime.getManifest().version;
+    stats.submission = {};
+    await browser.storage.local.set({ stats });
 
-  stats = {};
-  stats.version = chrome.runtime.getManifest().version;
-  stats.submission = {};
-  chrome.storage.local.set({ stats });
+    const response = await fetch(AUTHENTICATION_URL, {
+      method: 'POST',
+      headers: {
+        'Authorization': `token ${token}`,
+        'Accept': 'application/vnd.github.v3+json'
+      },
+      body: JSON.stringify(data)
+    });
 
-  xhr.open('POST', AUTHENTICATION_URL, true);
-  xhr.setRequestHeader('Authorization', `token ${token}`);
-  xhr.setRequestHeader('Accept', 'application/vnd.github.v3+json');
-  xhr.send(data);
+    const responseData = await response.json();
+    await statusCode(responseData, response.status, name);
+  } catch (error) {
+    console.error('Error in createRepo:', error);
+    $('#success').hide();
+    $('#error').text(`Error creating repository: ${error.message}`);
+    $('#error').show();
+  }
 };
 
 /* Status codes for linking of repo */
@@ -118,95 +130,73 @@ const linkStatusCode = (status, name) => {
   return bool;
 };
 
-/* 
-    Method for linking hook with an existing repository 
-    Steps:
-    1. Check if existing repository exists and the user has write access to it.
-    2. Link Hook to it (chrome Storage).
-*/
-const linkRepo = (token, name) => {
-  const AUTHENTICATION_URL = `https://api.github.com/repos/${name}`;
+const linkRepo = async (token, name) => {
+  try {
+    const AUTHENTICATION_URL = `https://api.github.com/repos/${name}`;
 
-  const xhr = new XMLHttpRequest();
-  xhr.addEventListener('readystatechange', function() {
-    if (xhr.readyState === 4) {
-      const res = JSON.parse(xhr.responseText);
-      const bool = linkStatusCode(xhr.status, name);
-      if (xhr.status === 200) {
-        // BUG FIX
-        if (!bool) {
-          // unable to gain access to repo in commit mode. Must switch to hook mode.
-          /* Set mode type to hook */
-          chrome.storage.local.set({ mode_type: 'hook' }, () => {
-            console.log(`Error linking ${name} to BaekjoonHub`);
-          });
-          /* Set Repo Hook to NONE */
-          chrome.storage.local.set({ BaekjoonHub_hook: null }, () => {
-            console.log('Defaulted repo hook to NONE');
-          });
+    const response = await fetch(AUTHENTICATION_URL, {
+      method: 'GET',
+      headers: {
+        'Authorization': `token ${token}`,
+        'Accept': 'application/vnd.github.v3+json'
+      }
+    });
 
-          /* Hide accordingly */
-          document.getElementById('hook_mode').style.display = 'inherit';
-          document.getElementById('commit_mode').style.display = 'none';
-        } else {
-          /* Change mode type to commit */
-          /* Save repo url to chrome storage */
-          chrome.storage.local.set({ mode_type: 'commit', repo: res.html_url }, () => {
-            $('#error').hide();
-            $('#success').html(`Successfully linked <a target="blank" href="${res.html_url}">${name}</a> to BaekjoonHub. Start <a href="https://www.acmicpc.net/">BOJ</a> now!`);
-            $('#success').show();
-            $('#unlink').show();
-          });
-          /* Set Repo Hook */
+    const responseData = await response.json();
+    const bool = linkStatusCode(response.status, name);
 
-          stats = {};
-          stats.version = chrome.runtime.getManifest().version;
-          stats.submission = {};
-          chrome.storage.local.set({ stats });
+    if (response.status === 200) {
+      if (!bool) {
+        // unable to gain access to repo in commit mode. Must switch to hook mode.
+        await browser.storage.local.set({ mode_type: 'hook' });
+        await browser.storage.local.set({ BaekjoonHub_hook: null });
+        
+        document.getElementById('hook_mode').style.display = 'inherit';
+        document.getElementById('commit_mode').style.display = 'none';
+      } else {
+        await browser.storage.local.set({ 
+          mode_type: 'commit',
+          repo: responseData.html_url 
+        });
 
-          chrome.storage.local.set({ BaekjoonHub_hook: res.full_name }, () => {
-            console.log('Successfully set new repo hook');
-            /* Get problems solved count */
-            chrome.storage.local.get('stats', (psolved) => {
-              const { stats } = psolved;
-            });
-          });
-          /* Hide accordingly */
-          document.getElementById('hook_mode').style.display = 'none';
-          document.getElementById('commit_mode').style.display = 'inherit';
-        }
+        $('#error').hide();
+        $('#success').html(`Successfully linked <a target="blank" href="${responseData.html_url}">${name}</a> to BaekjoonHub. Start <a href="https://www.acmicpc.net/">BOJ</a> now!`);
+        $('#success').show();
+        $('#unlink').show();
+
+        const stats = {
+          version: browser.runtime.getManifest().version,
+          submission: {}
+        };
+        await browser.storage.local.set({ stats });
+        await browser.storage.local.set({ BaekjoonHub_hook: responseData.full_name });
+
+        document.getElementById('hook_mode').style.display = 'none';
+        document.getElementById('commit_mode').style.display = 'inherit';
       }
     }
-  });
-
-  xhr.open('GET', AUTHENTICATION_URL, true);
-  xhr.setRequestHeader('Authorization', `token ${token}`);
-  xhr.setRequestHeader('Accept', 'application/vnd.github.v3+json');
-  xhr.send();
+  } catch (error) {
+    console.error('Error in linkRepo:', error);
+    $('#success').hide();
+    $('#error').text(`Error linking repository: ${error.message}`);
+    $('#error').show();
+  }
 };
 
-const unlinkRepo = () => {
-  /* Set mode type to hook */
-  chrome.storage.local.set({ mode_type: 'hook' }, () => {
-    console.log(`Unlinking repo`);
-  });
-  /* Set Repo Hook to NONE */
-  chrome.storage.local.set({ BaekjoonHub_hook: null }, () => {
-    console.log('Defaulted repo hook to NONE');
-  });
+const unlinkRepo = async () => {
+  try {
+    await browser.storage.local.set({ mode_type: 'hook' });
+    await browser.storage.local.set({ BaekjoonHub_hook: null });
+    await browser.storage.local.set({ BaekjoonHub_disOption: "platform" });
 
-  /*프로그래밍 언어별 폴더 정리 옵션 세션 저장 초기화*/
-  chrome.storage.local.set({ BaekjoonHub_disOption: "platform" }, () => {
-    console.log('DisOption Reset');
-  });
-
-  /* Hide accordingly */
-  document.getElementById('hook_mode').style.display = 'inherit';
-  document.getElementById('commit_mode').style.display = 'none';
+    document.getElementById('hook_mode').style.display = 'inherit';
+    document.getElementById('commit_mode').style.display = 'none';
+  } catch (error) {
+    console.error('Error in unlinkRepo:', error);
+  }
 };
 
 /* Check for value of select tag, Get Started disabled by default */
-
 $('#type').on('change', function() {
   const valueSelected = this.value;
   if (valueSelected) {
@@ -216,105 +206,142 @@ $('#type').on('change', function() {
   }
 });
 
-$('#hook_button').on('click', () => {
-  /* on click should generate: 1) option 2) repository name */
-  if (!option()) {
-    $('#error').text('No option selected - Pick an option from dropdown menu below that best suits you!');
-    $('#error').show();
-  } else if (!repositoryName()) {
-    $('#error').text('No repository name added - Enter the name of your repository!');
-    $('#name').focus();
-    $('#error').show();
-  } else {
+$('#hook_button').on('click', async () => {
+  try {
+    if (!option()) {
+      $('#error').text('No option selected - Pick an option from dropdown menu below that best suits you!');
+      $('#error').show();
+      return;
+    }
+    
+    if (!repositoryName()) {
+      $('#error').text('No repository name added - Enter the name of your repository!');
+      $('#name').focus();
+      $('#error').show();
+      return;
+    }
+
     $('#error').hide();
     $('#success').text('Attempting to create Hook... Please wait.');
     $('#success').show();
 
-    /* 
-      Perform processing
-      - step 1: Check if current stage === hook.
-      - step 2: store repo name as repoName in chrome storage.
-      - step 3: if (1), POST request to repoName (iff option = create new repo) ; else display error message.
-      - step 4: if proceed from 3, hide hook_mode and display commit_mode (show stats e.g: files pushed/questions-solved/leaderboard)
-    */
-    chrome.storage.local.get('BaekjoonHub_token', (data) => {
-      const token = data.BaekjoonHub_token;
-      if (token === null || token === undefined) {
-        /* Not authorized yet. */
-        $('#error').text('Authorization error - Grant BaekjoonHub access to your GitHub account to continue (launch extension to proceed)');
+    const data = await browser.storage.local.get('BaekjoonHub_token');
+    const token = data.BaekjoonHub_token;
+
+    if (!token) {
+      $('#error').text('Authorization error - Grant BaekjoonHub access to your GitHub account to continue (launch extension to proceed)');
+      $('#error').show();
+      $('#success').hide();
+      return;
+    }
+
+    if (option() === 'new') {
+      await createRepo(token, repositoryName());
+    } else {
+      const userData = await browser.storage.local.get('BaekjoonHub_username');
+      if (!userData.BaekjoonHub_username) {
+        $('#error').text('Improper Authorization error - Grant BaekjoonHub access to your GitHub account to continue (launch extension to proceed)');
         $('#error').show();
         $('#success').hide();
-      } else if (option() === 'new') {
-        createRepo(token, repositoryName());
-      } else {
-        chrome.storage.local.get('BaekjoonHub_username', (data2) => {
-          const username = data2.BaekjoonHub_username;
-          if (!username) {
-            /* Improper authorization. */
-            $('#error').text('Improper Authorization error - Grant BaekjoonHub access to your GitHub account to continue (launch extension to proceed)');
-            $('#error').show();
-            $('#success').hide();
-          } else {
-            linkRepo(token, `${username}/${repositoryName()}`, false);
-          }
-        });
+        return;
       }
-    });
-  }
+      await linkRepo(token, `${userData.BaekjoonHub_username}/${repositoryName()}`);
+    }
 
-  /*프로그래밍 언어별 폴더 정리 옵션 세션 저장*/
-  let org_option = $('#org_option').val();
-  chrome.storage.local.set({ BaekjoonHub_OrgOption: org_option }, () => {
-    console.log(`Set Organize by ${org_option}`);
-  });
+    const org_option = $('#org_option').val();
+    await browser.storage.local.set({ BaekjoonHub_OrgOption: org_option });
+
+  } catch (error) {
+    console.error('Error in hook button click:', error);
+    $('#success').hide();
+    $('#error').text(`Error: ${error.message}`);
+    $('#error').show();
+  }
 });
 
-$('#unlink a').on('click', () => {
-  unlinkRepo();
+$('#unlink a').on('click', async () => {
+  await unlinkRepo();
   $('#unlink').hide();
   $('#success').text('Successfully unlinked your current git repo. Please create/link a new hook.');
 });
 
 /* Detect mode type */
-chrome.storage.local.get('mode_type', (data) => {
-  const mode = data.mode_type;
-
-  if (mode && mode === 'commit') {
-    /* Check if still access to repo */
-    chrome.storage.local.get('BaekjoonHub_token', (data2) => {
-      const token = data2.BaekjoonHub_token;
-      if (token === null || token === undefined) {
-        /* Not authorized yet. */
-        $('#error').text('Authorization error - Grant BaekjoonHub access to your GitHub account to continue (click BaekjoonHub extension on the top right to proceed)');
-        $('#error').show();
-        $('#success').hide();
-        /* Hide accordingly */
-        document.getElementById('hook_mode').style.display = 'inherit';
-        document.getElementById('commit_mode').style.display = 'none';
-      } else {
-        /* Get access to repo */
-        chrome.storage.local.get('BaekjoonHub_hook', (repoName) => {
-          const hook = repoName.BaekjoonHub_hook;
-          if (!hook) {
-            /* Not authorized yet. */
-            $('#error').text('Improper Authorization error - Grant BaekjoonHub access to your GitHub account to continue (click BaekjoonHub extension on the top right to proceed)');
-            $('#error').show();
-            $('#success').hide();
-            /* Hide accordingly */
-            document.getElementById('hook_mode').style.display = 'inherit';
-            document.getElementById('commit_mode').style.display = 'none';
-          } else {
-            /* Username exists, at least in storage. Confirm this */
-            linkRepo(token, hook);
-          }
-        });
+async function initializePage() {
+  try {
+    const data = await browser.storage.local.get(['BaekjoonHub_token', 'mode_type', 'stats', 'BaekjoonHub_hook', 'bjhEnable']);
+    
+    // auth_mode 체크
+    if (!data.BaekjoonHub_token) {
+      if (document.getElementById('auth_mode')) {
+        document.getElementById('auth_mode').style.display = 'block';
       }
-    });
+      if (document.getElementById('hook_mode')) {
+        document.getElementById('hook_mode').style.display = 'none';
+      }
+      if (document.getElementById('commit_mode')) {
+        document.getElementById('commit_mode').style.display = 'none';
+      }
+      return;
+    }
 
-    document.getElementById('hook_mode').style.display = 'none';
-    document.getElementById('commit_mode').style.display = 'inherit';
-  } else {
-    document.getElementById('hook_mode').style.display = 'inherit';
-    document.getElementById('commit_mode').style.display = 'none';
+    // mode_type 체크
+    if (data.mode_type === 'commit') {
+      if (document.getElementById('auth_mode')) {
+        document.getElementById('auth_mode').style.display = 'none';
+      }
+      if (document.getElementById('hook_mode')) {
+        document.getElementById('hook_mode').style.display = 'none';
+      }
+      if (document.getElementById('commit_mode')) {
+        document.getElementById('commit_mode').style.display = 'block';
+      }
+
+      // 저장소 정보 표시
+      if (data.BaekjoonHub_hook && document.getElementById('repo_url')) {
+        document.getElementById('repo_url').innerHTML = 
+          `Your Repo: <a target="blank" style="color: cadetblue !important;" 
+           href="https://github.com/${data.BaekjoonHub_hook}">${data.BaekjoonHub_hook}</a>`;
+      }
+    } else {
+      if (document.getElementById('auth_mode')) {
+        document.getElementById('auth_mode').style.display = 'none';
+      }
+      if (document.getElementById('hook_mode')) {
+        document.getElementById('hook_mode').style.display = 'block';
+      }
+      if (document.getElementById('commit_mode')) {
+        document.getElementById('commit_mode').style.display = 'none';
+      }
+    }
+
+    // Enable/Disable 상태 초기화
+    if ($('#onffbox').length) {
+      if (data.bjhEnable === undefined) {
+        $('#onffbox').prop('checked', true);
+        await browser.storage.local.set({ 'bjhEnable': true });
+      } else {
+        $('#onffbox').prop('checked', data.bjhEnable);
+      }
+    }
+
+  } catch (error) {
+    console.error('Page initialization error:', error);
+    // 에러 발생시 기본 상태 설정
+    if (document.getElementById('auth_mode')) {
+      document.getElementById('auth_mode').style.display = 'block';
+    }
+    if (document.getElementById('hook_mode')) {
+      document.getElementById('hook_mode').style.display = 'none';
+    }
+    if (document.getElementById('commit_mode')) {
+      document.getElementById('commit_mode').style.display = 'none';
+    }
   }
-});
+}
+
+// DOM 로드 완료 후 초기화
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initializePage);
+} else {
+  initializePage();
+}

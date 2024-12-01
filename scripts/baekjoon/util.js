@@ -1,186 +1,344 @@
-/**
- * 로딩 버튼 추가
- */
-function startUpload() {
-  let elem = document.getElementById('BaekjoonHub_progress_anchor_element');
-  if (elem !== undefined) {
-    elem = document.createElement('span');
-    elem.id = 'BaekjoonHub_progress_anchor_element';
-    elem.className = 'runcode-wrapper__8rXm';
-    elem.style = 'margin-left: 10px;padding-top: 0px;';
-  }
-  elem.innerHTML = `<div id="BaekjoonHub_progress_elem" class="BaekjoonHub_progress"></div>`;
-  const target = document.getElementById('status-table')?.childNodes[1].childNodes[0].childNodes[3] || document.querySelector('div.table-responsive > table > tbody > tr > td:nth-child(5)');
-  target.append(elem);
-  if (target.childNodes.length > 0) {
-    target.childNodes[0].append(elem);
-  }
-  startUploadCountDown();
+// 브라우저 호환성
+if (typeof browser === 'undefined') {
+  var browser = chrome;
 }
 
 /**
- * 업로드 완료 아이콘 표시 및 링크 생성
- * @param {object} branches - 브랜치 정보 ('userName/repositoryName': 'branchName')
- * @param {string} directory - 디렉토리 정보 ('백준/Gold/1. 문제이름')
- * 1. 업로드 완료 아이콘을 표시합니다.
- * 2. 아이콘 클릭 시 업로드된 GitHub 링크로 이동하는 이벤트 리스너를 등록합니다.
+ * DOM 요소 찾기 헬퍼 함수
+ * @param {string} selector - CSS 선택자
+ * @returns {Element|null}
  */
-function markUploadedCSS(branches, directory) {
-  uploadState.uploading = false;
-  const elem = document.getElementById('BaekjoonHub_progress_elem');
-  elem.className = 'markuploaded';
-  const uploadedUrl = "https://github.com/" +
-              Object.keys(branches)[0] + "/tree/" + 
-              branches[Object.keys(branches)[0]] + "/" + directory;
-  elem.addEventListener("click", function() {
-    window.location.href = uploadedUrl;
-  });
-  elem.style.cursor = "pointer";
+function findElement(selector) {
+  try {
+    return document.querySelector(selector);
+  } catch (error) {
+    console.error('Error finding element:', error);
+    return null;
+  }
 }
+window.isNull = function(obj) {
+  return obj === null || obj === undefined;
+};
+
+window.isEmpty = function(obj) {
+  return isNull(obj) || obj.length === 0;
+};
+
+window.preProcessEmptyObj = function(obj) {
+  return obj || {};
+};
+// util.js에 추가
+window.langVersionRemove = function(lang, ignores = null) {
+  try {
+    if (ignores === null || !ignores.has(lang)) {
+      let parts = lang.split(' ');
+      if (/^\d/.test(parts[parts.length - 1])) {
+        parts.pop();
+      }
+      lang = parts.join(' ');
+    }
+    return lang;
+  } catch (error) {
+    console.error('Error in langVersionRemove:', error);
+    return lang; // 오류 발생시 원본 반환
+  }
+};
+
+// 관련 유틸리티 함수들도 추가
+window.convertSingleCharToDoubleChar = function(str) {
+  try {
+    return str.replace(/[/\\:*?"<>|]/g, '_');
+  } catch (error) {
+    console.error('Error in convertSingleCharToDoubleChar:', error);
+    return str;
+  }
+};
+
+window.getDirNameByOrgOption = async function(defaultPath, language) {
+  try {
+    const data = await browser.storage.local.get('BaekjoonHub_OrgOption');
+    const option = data.BaekjoonHub_OrgOption || 'platform';
+    
+    if (option === 'language') {
+      return `백준/${language}/${defaultPath.split('/').pop()}`;
+    }
+    return defaultPath;
+  } catch (error) {
+    console.error('Error in getDirNameByOrgOption:', error);
+    return defaultPath;
+  }
+};
+
+window.parseNumberFromString = function(str) {
+  try {
+    const match = str.match(/\d+/);
+    return match ? parseInt(match[0], 10) : NaN;
+  } catch (error) {
+    console.error('Error in parseNumberFromString:', error);
+    return NaN;
+  }
+};
+
+window.unescapeHtml = function(str) {
+  try {
+    if (!str) return '';
+    return str
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#039;/g, "'")
+      .replace(/&#39;/g, "'");
+  } catch (error) {
+    console.error('Error in unescapeHtml:', error);
+    return str;
+  }
+};
+
+window.maxValuesGroupBykey = function(array, key, compareFn) {
+  try {
+    const groups = {};
+    array.forEach(item => {
+      const groupKey = item[key];
+      if (!groups[groupKey] || compareFn(groups[groupKey], item) > 0) {
+        groups[groupKey] = item;
+      }
+    });
+    return Object.values(groups);
+  } catch (error) {
+    console.error('Error in maxValuesGroupBykey:', error);
+    return [];
+  }
+};
+/**
+ * 로딩 버튼 추가
+ */
+window.startUpload = function() {
+  try {
+    console.log('Starting upload process...');
+    let elem = document.getElementById('BaekjoonHub_progress_anchor_element');
+    
+    if (!elem) {
+      elem = document.createElement('span');
+      elem.id = 'BaekjoonHub_progress_anchor_element';
+      elem.className = 'runcode-wrapper__8rXm';
+      elem.style.cssText = 'margin-left: 10px; padding-top: 0px; display: inline-block;';
+    }
+
+    elem.innerHTML = `<div id="BaekjoonHub_progress_elem" class="BaekjoonHub_progress"></div>`;
+
+    // 여러 가능한 위치 시도
+    const possibleTargets = [
+      document.querySelector('#status-table tbody tr td:nth-child(4)'),
+      document.querySelector('div.table-responsive > table > tbody > tr > td:nth-child(5)'),
+      document.querySelector('.result-text')  // 새로운 선택자 추가
+    ];
+
+    const target = possibleTargets.find(t => t);
+    
+    if (!target) {
+      console.error('Upload target element not found');
+      return;
+    }
+
+    // 기존 progress 요소가 있다면 제거
+    const existingProgress = document.getElementById('BaekjoonHub_progress_anchor_element');
+    if (existingProgress) {
+      existingProgress.remove();
+    }
+
+    target.appendChild(elem);
+    console.log('Upload indicator added to DOM');
+    startUploadCountDown();
+  } catch (error) {
+    console.error('Error in startUpload:', error);
+  }
+};
+
+/**
+ * 업로드 완료 아이콘 표시 및 링크 생성
+ */
+window.markUploadedCSS = function(branches, directory) {
+  try {
+    uploadState.uploading = false;
+    const elem = document.getElementById('BaekjoonHub_progress_elem');
+    if (!elem) {
+      console.error('Progress element not found');
+      return;
+    }
+
+    elem.className = 'markuploaded';
+    
+    const uploadedUrl = "https://github.com/" +
+      Object.keys(branches)[0] + "/tree/" + 
+      branches[Object.keys(branches)[0]] + "/" + directory;
+
+    // 상태 텍스트 추가
+    const statusText = document.createElement('span');
+    statusText.className = 'upload-status-text';
+    statusText.textContent = '업로드 완료!';
+    elem.parentElement.appendChild(statusText);
+
+    // 클릭 이벤트 추가
+    elem.addEventListener('click', function() {
+      window.open(uploadedUrl, '_blank');
+    });
+    
+    elem.style.cursor = 'pointer';
+    
+    // 툴팁 추가
+    elem.title = '깃허브에서 보기';
+
+    console.log('Upload completed, URL:', uploadedUrl);
+  } catch (error) {
+    console.error('Error in markUploadedCSS:', error);
+  }
+};
 
 /**
  * 업로드 실패 아이콘 표시
  */
-function markUploadFailedCSS() {
-  uploadState.uploading = false;
-  const elem = document.getElementById('BaekjoonHub_progress_elem');
-  elem.className = 'markuploadfailed';
-}
+window.markUploadFailedCSS = function() {
+  try {
+    uploadState.uploading = false;
+    const elem = document.getElementById('BaekjoonHub_progress_elem');
+    if (!elem) {
+      console.error('Progress element not found');
+      return;
+    }
+
+    elem.className = 'markuploadfailed';
+    
+    // 상태 텍스트 추가
+    const statusText = document.createElement('span');
+    statusText.className = 'upload-status-text';
+    statusText.textContent = '업로드 실패';
+    statusText.style.color = '#e74c3c';
+    elem.parentElement.appendChild(statusText);
+
+    console.log('Upload failed');
+  } catch (error) {
+    console.error('Error in markUploadFailedCSS:', error);
+  }
+};
 
 /**
- * 총 실행시간이 10초를 초과한다면 실패로 간주합니다.
+ * 업로드 카운트다운 시작
  */
 function startUploadCountDown() {
-  uploadState.uploading = true;
-  uploadState.countdown = setTimeout(() => {
-    if (uploadState.uploading === true) {
-      markUploadFailedCSS();
-    }
-  }, 10000);
-}
-
-/**
- * 제출 목록 비교함수입니다
- * @param {object} a - 제출 요소 피연산자 a
- * @param {object} b - 제출 요소 피연산자 b
- * @returns {number} - a와 b 아래의 우선순위로 값을 비교하여 정수값을 반환합니다.
- * 1. 서브태스크가 있는 문제이고, 점수(result)의 차이가 있을 경우 a > b 이면 음수, a < b 이면 양수를 반환합니다.
- * 2. 실행시간(runtime)의 차이가 있을 경우 그 차이 값을 반환합니다.
- * 3. 사용메모리(memory)의 차이가 있을 경우 그 차이 값을 반환합니다.
- * 4. 코드길이(codeLength)의 차이가 있을 경우 그 차이 값을 반환합니다.
- * 5. 위의 요소가 모두 같은 경우 제출한 요소(submissionId)의 그 차이 값의 역을 반환합니다.
- * */
-function compareSubmission(a, b) {
-  // prettier-ignore-start
-  /* eslint-disable */
-  return hasNotSubtask(a.result, b.result)
-          ? a.runtime === b.runtime
-            ? a.memory === b.memory
-              ? a.codeLength === b.codeLength
-                ? -(a.submissionId - b.submissionId)
-                : a.codeLength - b.codeLength
-              : a.memory - b.memory
-            : a.runtime - b.runtime
-          : compareResult(a.result, b.result)
-  ;
-  /* eslint-enable */
-  // prettier-ignore-end
-}
-
-/**
- * 서브태스크가 있는 문제의 경우도 고려해 제출 결과를 비교하는 함수입니다.
- * @param {string} a 제출 결과 피연산자 a
- * @param {string} b 제출 결과 피연산자 b
- * @returns {boolean} 서브 태스크가 없는 경우 true, 서브 태스크가 있는 경우 false를 반환합니다.
- */
-function hasNotSubtask(a, b) {
-  a = parseNumberFromString(a);
-  b = parseNumberFromString(b);
-
-  if (isNaN(a) && isNaN(b)) return true;
-
-  return false;
-}
-
-/**
- * 서브태스크가 있는 문제의 경우 점수가 높은 순서로 정렬되도록 값을 반환합니다.
- * @param {string} a 제출 결과 피연산자 a
- * @param {string} b 제출 결과 피연산자 b
- * @returns {number} a의 점수가 높은 경우 음수, b의 점수가 높은 경우 양수
- */
-function compareResult(a, b) {
-  a = parseNumberFromString(a);
-  b = parseNumberFromString(b);
-
-  if (typeof a === 'number' && typeof b === 'number') return -(a - b);
-  if (isNaN(b)) return -1;
-  if (isNaN(a)) return 1;
-}
-
-/**
- * 파싱된 문제별로 최고의 성능의 제출 내역을 하나씩 뽑아서 배열로 반환합니다.
- * @param {array} submissions - 제출 목록 배열
- * @returns {array} - 목록 중 문제별로 최고의 성능 제출 내역을 담은 배열
- */
-function selectBestSubmissionList(submissions) {
-  if (isNull(submissions) || submissions.length === 0) return [];
-  return maxValuesGroupBykey(submissions, 'problemId', (a, b) => -compareSubmission(a, b));
-}
-
-function convertResultTableHeader(header) {
-  switch (header) {
-    case '문제번호':
-    case '문제':
-      return 'problemId';
-    case '난이도':
-      return 'level';
-    case '결과':
-      return 'result';
-    case '문제내용':
-      return 'problemDescription';
-    case '언어':
-      return 'language';
-    case '제출 번호':
-      return 'submissionId';
-    case '아이디':
-      return 'username';
-    case '제출시간':
-    case '제출한 시간':
-      return 'submissionTime';
-    case '시간':
-      return 'runtime';
-    case '메모리':
-      return 'memory';
-    case '코드 길이':
-      return 'codeLength';
-    default:
-      return 'unknown';
+  try {
+    uploadState.uploading = true;
+    uploadState.countdown = setTimeout(() => {
+      if (uploadState.uploading) {
+        markUploadFailedCSS();
+      }
+    }, 10000);
+  } catch (error) {
+    console.error('Error in upload countdown:', error);
   }
 }
 
-function convertImageTagAbsoluteURL(doc = document) {
-  if(isNull(doc)) return;
-  // img tag replace Relative URL to Absolute URL.
-  Array.from(doc.getElementsByTagName('img'), (x) => {
-    x.setAttribute('src', x.currentSrc);
-    return x;
-  });
+// 제출 관련 유틸리티 함수들
+const compareSubmission = (a, b) => {
+  try {
+    return hasNotSubtask(a.result, b.result)
+      ? a.runtime === b.runtime
+        ? a.memory === b.memory
+          ? a.codeLength === b.codeLength
+            ? -(a.submissionId - b.submissionId)
+            : a.codeLength - b.codeLength
+          : a.memory - b.memory
+        : a.runtime - b.runtime
+      : compareResult(a.result, b.result);
+  } catch (error) {
+    console.error('Error comparing submissions:', error);
+    return 0;
+  }
+};
+
+function hasNotSubtask(a, b) {
+  try {
+    const numA = parseNumberFromString(a);
+    const numB = parseNumberFromString(b);
+    return isNaN(numA) && isNaN(numB);
+  } catch (error) {
+    console.error('Error checking subtask:', error);
+    return true;
+  }
 }
 
-/**
- * 백준의 날짜 형식과 같게 포맷된 스트링을 반환하는 함수
- * @example 2023년 9월 23일 16:26:26
- * @param {Date} date
- * @return {string} 포맷된 스트링
- */
-function getDateString(date){
-  const year = date.getFullYear();
-  const month = (date.getMonth() + 1).toString().padStart(2, '0');
-  const day = date.getDate().toString().padStart(2, '0');
-  const hours = date.getHours().toString().padStart(2, '0');
-  const minutes = date.getMinutes().toString().padStart(2, '0');
-  const seconds = date.getSeconds().toString().padStart(2, '0');
+function compareResult(a, b) {
+  try {
+    const numA = parseNumberFromString(a);
+    const numB = parseNumberFromString(b);
 
-  return `${year}년 ${month}월 ${day}일 ${hours}:${minutes}:${seconds}`;
+    if (typeof numA === 'number' && typeof numB === 'number') return -(numA - numB);
+    if (isNaN(numB)) return -1;
+    if (isNaN(numA)) return 1;
+    return 0;
+  } catch (error) {
+    console.error('Error comparing results:', error);
+    return 0;
+  }
+}
 
+function selectBestSubmissionList(submissions) {
+  try {
+    if (!submissions?.length) return [];
+    return maxValuesGroupBykey(submissions, 'problemId', (a, b) => -compareSubmission(a, b));
+  } catch (error) {
+    console.error('Error selecting best submissions:', error);
+    return [];
+  }
+}
+
+// 변환 유틸리티 함수들
+function convertResultTableHeader(header) {
+  const headerMap = {
+    '문제번호': 'problemId',
+    '문제': 'problemId',
+    '난이도': 'level',
+    '결과': 'result',
+    '문제내용': 'problemDescription',
+    '언어': 'language',
+    '제출 번호': 'submissionId',
+    '아이디': 'username',
+    '제출시간': 'submissionTime',
+    '제출한 시간': 'submissionTime',
+    '시간': 'runtime',
+    '메모리': 'memory',
+    '코드 길이': 'codeLength'
+  };
+  return headerMap[header] || 'unknown';
+}
+
+function convertImageTagAbsoluteURL(doc) {
+  try {
+    if (!doc) return;
+    const images = doc.getElementsByTagName('img');
+    Array.from(images).forEach(img => {
+      if (img.currentSrc) {
+        img.setAttribute('src', img.currentSrc);
+      }
+    });
+  } catch (error) {
+    console.error('Error converting image URLs:', error);
+  }
+}
+
+function getDateString(date) {
+  try {
+    return new Intl.DateTimeFormat('ko-KR', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    }).format(date).replace(/\./g, '년 ').replace(/\./g, '월 ').replace(/\./g, '일 ');
+  } catch (error) {
+    console.error('Error formatting date:', error);
+    return date.toISOString();
+  }
 }
